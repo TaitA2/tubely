@@ -1,10 +1,13 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -37,14 +40,14 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	r.ParseMultipartForm(maxMemory)
 
 	file, header, err := r.FormFile("thumbnail")
+	defer file.Close()
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Unable to parse form file", err)
 		return
 	}
 	mediaType := header.Header.Get("Content-Type")
-	data, err := io.ReadAll(file)
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Unable to read image data", err)
+	if mediaType != "image/jpeg" && mediaType != "image/png" {
+		respondWithError(w, http.StatusConflict, "Invalid filetype", err)
 		return
 	}
 
@@ -58,10 +61,26 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// encoding
-	encodedData := base64.StdEncoding.EncodeToString(data)
-	dataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, encodedData)
-	video.ThumbnailURL = &dataURL
+	// update
+
+	b := make([]byte, 32)
+	_, err = rand.Read(b)
+	randURI := base64.RawURLEncoding.EncodeToString(b)
+	fileURI := fmt.Sprintf("./assets/%v.%s", randURI, strings.Split(mediaType, "/")[1])
+	newURL := fmt.Sprintf("http://localhost:%s/assets/%v.%s", cfg.port, randURI, strings.Split(mediaType, "/")[1])
+	osFile, err := os.Create(fileURI)
+	if err != nil {
+		fmt.Printf("Error creating thumbnail file: %v\n", err)
+		respondWithError(w, http.StatusInternalServerError, "Unable to create thumbnail file", err)
+		return
+	}
+	_, err = io.Copy(osFile, file)
+	if err != nil {
+		fmt.Printf("Error saving thumbnail in os")
+		respondWithError(w, http.StatusInternalServerError, "Unable to saving thumbnail in os", err)
+		return
+	}
+	video.ThumbnailURL = &newURL
 	err = cfg.db.UpdateVideo(video)
 	fmt.Printf("Updated url: %v\n", *video.ThumbnailURL)
 	if err != nil {
