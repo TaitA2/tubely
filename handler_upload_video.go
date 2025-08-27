@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"mime"
 	"net/http"
 	"os"
+	"os/exec"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -81,6 +85,13 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	b := make([]byte, 32)
 	_, err = rand.Read(b)
 	fileKey := base64.RawURLEncoding.EncodeToString(b) + ".mp4"
+	ratio, err := getVideoAspectRatio(osFile.Name())
+	if err != nil {
+		fmt.Printf("Error getting aspect ratio")
+		respondWithError(w, http.StatusInternalServerError, "Unable to get aspect ratio", err)
+		return
+	}
+	fileKey = ratio + fileKey
 	fmt.Println("File Key: ", fileKey)
 
 	osFile.Seek(0, io.SeekStart)
@@ -99,4 +110,36 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	video.VideoURL = &newURL
 	err = cfg.db.UpdateVideo(video)
 
+}
+
+func getVideoAspectRatio(filePath string) (string, error) {
+	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filePath)
+	var byteBuffer bytes.Buffer
+	cmd.Stdout = &byteBuffer
+	cmd.Run()
+	var metadata ffprobe
+	if err := json.Unmarshal(byteBuffer.Bytes(), &metadata); err != nil {
+		return "", fmt.Errorf("Error unmarshalling ffprobe output: %v", err)
+	}
+	width := metadata.Streams[0].Width
+	height := metadata.Streams[0].Height
+	ratio := getRatio(width, height)
+	return ratio, nil
+}
+
+func getRatio(width, height int) string {
+	if math.Round(16/(float64(width)/float64(height))) == 9 {
+		return "landscape"
+	}
+	if math.Round(9/(float64(width)/float64(height))) == 16 {
+		return "portrait"
+	}
+	return "other"
+}
+
+type ffprobe struct {
+	Streams []struct {
+		Width  int `json:"width"`
+		Height int `json:"height"`
+	}
 }
