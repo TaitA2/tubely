@@ -60,7 +60,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Error parsing media type", err)
 		return
 	}
-	fmt.Println("Media Type: ", mediaType)
+	// fmt.Println("Media Type: ", mediaType)
 	if mediaType != "video/mp4" {
 		respondWithError(w, http.StatusConflict, "Invalid filetype", err)
 		return
@@ -68,7 +68,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 
 	// temp file
 	osFile, err := os.CreateTemp("", "tubely-upload.mp4")
-	fmt.Println("OS File: ", osFile.Name())
+	// fmt.Println("OS File: ", osFile.Name())
 	if err != nil {
 		log.Fatalf("Error creating temp file: %v", err)
 	}
@@ -97,15 +97,33 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	// fileKey
 	b := make([]byte, 32)
 	_, err = rand.Read(b)
-	fileKey := base64.RawURLEncoding.EncodeToString(b) + ".mp4"
+	fileKey := base64.RawURLEncoding.EncodeToString(b)
 	ratio, err := getVideoAspectRatio(processFile.Name())
 	if err != nil {
 		fmt.Printf("Error getting aspect ratio")
 		respondWithError(w, http.StatusInternalServerError, "Unable to get aspect ratio", err)
 		return
 	}
-	fileKey = ratio + fileKey
-	fmt.Println("File Key: ", fileKey)
+	fileKey = cfg.s3Bucket + "," + ratio + fileKey + ".mp4"
+	// fmt.Println("File Key: ", fileKey)
+	// presign video
+	video.VideoURL = &fileKey
+	err = cfg.db.UpdateVideo(video)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to update db video", err)
+		return
+	}
+	video, err = cfg.dbVideoToSignedVideo(video)
+	fmt.Println("SIGNED URL: ", *video.VideoURL)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to presign video", err)
+		return
+	}
+	err = cfg.db.UpdateVideo(video)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to update db video", err)
+		return
+	}
 
 	processFile.Seek(0, io.SeekStart)
 	_, err = cfg.s3Client.PutObject(context.Background(), &s3.PutObjectInput{
@@ -119,9 +137,16 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Unable to save video in bucket", err)
 		return
 	}
-	newURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, fileKey)
+
+	// "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Checksum-Mode=ENABLED&X-Amz-Credential=AKIA6OFPVTCX6QLR57UQ%2F20250828%2Feu-west-1%2Fs3%2Faws4_request&X-Amz-Date=20250828T141117Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&x-id=GetObject&X-Amz-Signature=ccf518f0fdf2b032b82725053e49a0de8d0b80189ed924f3abeb297c4b546da3"
+	newURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Checksum-Mode=ENABLED&X-Amz-Credential=AKIA6OFPVTCX6QLR57UQ%2F20250828%2Feu-west-1%2Fs3%2Faws4_request&X-Amz-Date=20250828T141117Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&x-id=GetObject&X-Amz-Signature=ccf518f0fdf2b032b82725053e49a0de8d0b80189ed924f3abeb297c4b546da3", cfg.s3Bucket, cfg.s3Region, fileKey)
 	video.VideoURL = &newURL
+
 	err = cfg.db.UpdateVideo(video)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to update db video", err)
+		return
+	}
 
 }
 

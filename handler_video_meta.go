@@ -95,6 +95,18 @@ func (cfg *apiConfig) handlerVideoGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// // presign video
+	// video, err = cfg.dbVideoToSignedVideo(video)
+	// if err != nil {
+	// 	respondWithError(w, http.StatusInternalServerError, "Unable to presign video", err)
+	// 	return
+	// }
+	// err = cfg.db.UpdateVideo(video)
+	// if err != nil {
+	// 	respondWithError(w, http.StatusInternalServerError, "Unable to update db video", err)
+	// 	return
+	// }
+
 	respondWithJSON(w, http.StatusOK, video)
 }
 
@@ -115,6 +127,22 @@ func (cfg *apiConfig) handlerVideosRetrieve(w http.ResponseWriter, r *http.Reque
 		respondWithError(w, http.StatusInternalServerError, "Couldn't retrieve videos", err)
 		return
 	}
+
+	// // presign video
+	// for i := range videos {
+	// 	video := videos[i]
+	// 	video, err = cfg.dbVideoToSignedVideo(video)
+	// 	if err != nil {
+	// 		respondWithError(w, http.StatusInternalServerError, "Unable to presign video", err)
+	// 		return
+	// 	}
+	// 	err = cfg.db.UpdateVideo(video)
+	// 	if err != nil {
+	// 		respondWithError(w, http.StatusInternalServerError, "Unable to update db video", err)
+	// 		return
+	// 	}
+	// 	videos[i] = video
+	// }
 
 	respondWithJSON(w, http.StatusOK, videos)
 }
