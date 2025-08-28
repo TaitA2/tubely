@@ -80,12 +80,25 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Unable to save video in os", err)
 		return
 	}
+	// process video
+	processPath, err := processVideoForFastStart(osFile.Name())
+	if err != nil {
+		fmt.Printf("Error processing video")
+		respondWithError(w, http.StatusInternalServerError, "Unable to process video", err)
+		return
+	}
+	processFile, err := os.Open(processPath)
+	if err != nil {
+		fmt.Printf("Error opening processed video")
+		respondWithError(w, http.StatusInternalServerError, "Unable to open processed video", err)
+		return
+	}
 
 	// fileKey
 	b := make([]byte, 32)
 	_, err = rand.Read(b)
 	fileKey := base64.RawURLEncoding.EncodeToString(b) + ".mp4"
-	ratio, err := getVideoAspectRatio(osFile.Name())
+	ratio, err := getVideoAspectRatio(processFile.Name())
 	if err != nil {
 		fmt.Printf("Error getting aspect ratio")
 		respondWithError(w, http.StatusInternalServerError, "Unable to get aspect ratio", err)
@@ -94,11 +107,11 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	fileKey = ratio + fileKey
 	fmt.Println("File Key: ", fileKey)
 
-	osFile.Seek(0, io.SeekStart)
+	processFile.Seek(0, io.SeekStart)
 	_, err = cfg.s3Client.PutObject(context.Background(), &s3.PutObjectInput{
 		Bucket:      &cfg.s3Bucket,
 		Key:         &fileKey,
-		Body:        osFile,
+		Body:        processFile,
 		ContentType: &mediaType,
 	})
 	if err != nil {
